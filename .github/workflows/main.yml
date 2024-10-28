@@ -1,0 +1,82 @@
+name: Deploy Laravel on AWS
+
+on:
+  workflow_dispatch:
+    inputs:
+      reName:
+        description: 'Enter the directory name for the Laravel application'
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to AWS EC2
+        env:
+          AWS_SSH_KEY: ${{ secrets.AWS_SSH_KEY }}
+          SERVER_IP: "13.215.232.150"
+          NEW_DIR_NAME: ${{ github.event.inputs.reName }}  # New directory name from input
+          MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+          MYSQL_DB: "laravel"
+          MYSQL_USER: "toor"
+          MYSQL_USER_PASSWORD: ${{ secrets.MYSQL_USER_PASSWORD }}
+        run: |
+          # SSH into the AWS EC2 instance
+          ssh -o StrictHostKeyChecking=no -i $AWS_SSH_KEY ubuntu@$SERVER_IP << EOF
+            # Update and install MySQL server
+            sudo apt update
+            sudo apt install -y mysql-server
+
+            # Configure MySQL for remote access
+            sudo sed -i "s/bind-address.*/bind-address = 0.0.0.0/" /etc/mysql/mysql.conf.d/mysqld.cnf
+            sudo systemctl restart mysql
+
+            # Set up MySQL root password and create database and user
+            sudo mysql -u root <<EOSQL
+              ALTER USER 'root'@'localhost' IDENTIFIED WITH 'mysql_native_password' BY '$MYSQL_ROOT_PASSWORD';
+              FLUSH PRIVILEGES;
+              CREATE DATABASE IF NOT EXISTS $MYSQL_DB;
+              CREATE USER IF NOT EXISTS '$MYSQL_USER'@'%' IDENTIFIED BY '$MYSQL_USER_PASSWORD';
+              GRANT ALL PRIVILEGES ON $MYSQL_DB.* TO '$MYSQL_USER'@'%';
+              FLUSH PRIVILEGES;
+            EOSQL
+
+            # Clone the main branch from the GitHub repo
+            cd /var/www
+            sudo rm -rf $NEW_DIR_NAME  # Remove existing directory if it exists
+            sudo git clone https://github.com/devktops/laravel-todo.git $NEW_DIR_NAME
+            
+            # Move into the newly cloned Laravel directory
+            cd $NEW_DIR_NAME
+            
+            # Checkout the main branch
+            sudo git checkout main
+
+            # Copy .env.example to .env
+            sudo cp .env.example .env
+
+            # Set up environment variables for MySQL connection in .env file
+            sudo sed -i "s/DB_HOST=.*/DB_HOST=127.0.0.1/" .env
+            sudo sed -i "s/DB_DATABASE=.*/DB_DATABASE=$MYSQL_DB/" .env
+            sudo sed -i "s/DB_USERNAME=.*/DB_USERNAME=$MYSQL_USER/" .env
+            sudo sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=$MYSQL_USER_PASSWORD/" .env
+
+            # Install PHP dependencies using Composer
+            sudo apt install -y composer  # Ensure Composer is installed
+            sudo composer install --optimize-autoloader --no-dev
+
+            # Set permissions for Laravel directories
+            sudo chown -R www-data:www-data storage bootstrap/cache
+            sudo chmod -R 775 storage bootstrap/cache
+
+            # Generate application key
+            php artisan key:generate
+
+            # Run migrations
+            php artisan migrate --force
+
+            # Optimize Laravel configurations for production
+            php artisan config:cache
+            php artisan route:cache
+          EOF
