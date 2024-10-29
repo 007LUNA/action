@@ -12,18 +12,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Set up SSH key
+        run: |
+          echo "${{ secrets.AWS_SSH_KEY }}" | tr -d '\r' > ssh_key.pem
+          chmod 600 ssh_key.pem  # Set the right permissions for the key file
+
       - name: Deploy to AWS EC2
         env:
-          AWS_SSH_KEY: ${{ secrets.AWS_SSH_KEY }}
           SERVER_IP: "13.215.232.150"
-          NEW_DIR_NAME: ${{ github.event.inputs.reName }}  # New directory name from input
+          NEW_DIR_NAME: ${{ github.event.inputs.reName }}
           MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
           MYSQL_DB: "laravel"
           MYSQL_USER: "action"
           MYSQL_USER_PASSWORD: ${{ secrets.MYSQL_USER_PASSWORD }}
         run: |
-          # SSH into the AWS EC2 instance
-          ssh -o StrictHostKeyChecking=no -i $AWS_SSH_KEY ubuntu@$SERVER_IP << EOF
+          ssh -o StrictHostKeyChecking=no -i ssh_key.pem ubuntu@$SERVER_IP << EOF
             # Update and install MySQL server
             sudo apt update
             sudo apt install -y mysql-server
@@ -42,42 +45,32 @@ jobs:
               FLUSH PRIVILEGES;
             EOSQL
 
-            # Clone the main branch from the GitHub repo
+            # Clone the repository
             cd /var/www
-            sudo git init
             sudo rm -rf $NEW_DIR_NAME  # Remove existing directory if it exists
-            sudo git clone git@github.com:007LUNA/laravel-action.git $NEW_DIR_NAME
+            sudo git clone https://github.com/007LUNA/laravel-action.git $NEW_DIR_NAME
             
-            # Move into the newly cloned Laravel directory
+            # Move into the cloned directory
             cd $NEW_DIR_NAME
-            
-            # Checkout the main branch
             sudo git checkout main
 
-            # Copy .env.example to .env
+            # Set up Laravel environment
             sudo cp .env.example .env
-
-            # Set up environment variables for MySQL connection in .env file
             sudo sed -i "s/DB_HOST=.*/DB_HOST=127.0.0.1/" .env
             sudo sed -i "s/DB_DATABASE=.*/DB_DATABASE=$MYSQL_DB/" .env
             sudo sed -i "s/DB_USERNAME=.*/DB_USERNAME=$MYSQL_USER/" .env
             sudo sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=$MYSQL_USER_PASSWORD/" .env
 
-            # Install PHP dependencies using Composer
-            sudo apt install -y composer  # Ensure Composer is installed
+            # Install dependencies and optimize Laravel
+            sudo apt install -y composer
             sudo composer install --optimize-autoloader --no-dev
-
-            # Set permissions for Laravel directories
             sudo chown -R www-data:www-data storage bootstrap/cache
             sudo chmod -R 775 storage bootstrap/cache
-
-            # Generate application key
             php artisan key:generate
-
-            # Run migrations
             php artisan migrate --force
-
-            # Optimize Laravel configurations for production
             php artisan config:cache
             php artisan route:cache
           EOF
+
+      - name: Clean up SSH key
+        run: rm ssh_key.pem  # Remove the SSH key file after the job completes
