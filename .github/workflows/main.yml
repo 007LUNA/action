@@ -18,7 +18,7 @@ jobs:
       - name: Configure SSH key
         run: |
           echo "$SSH_PRIVATE_KEY" > ssh_key.pem
-          chmod 600 ssh_key.pem  # Restrict permissions to read/write for the owner
+          sudo chmod 600 ssh_key.pem  # Restrict permissions to read/write for the owner
 
       - name: Debug SSH Key
         run: |
