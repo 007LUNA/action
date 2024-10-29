@@ -19,7 +19,7 @@ jobs:
           NEW_DIR_NAME: ${{ github.event.inputs.reName }}  # New directory name from input
           MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
           MYSQL_DB: "laravel"
-          MYSQL_USER: "toor"
+          MYSQL_USER: "action"
           MYSQL_USER_PASSWORD: ${{ secrets.MYSQL_USER_PASSWORD }}
         run: |
           # SSH into the AWS EC2 instance
@@ -44,8 +44,9 @@ jobs:
 
             # Clone the main branch from the GitHub repo
             cd /var/www
+            sudo git init
             sudo rm -rf $NEW_DIR_NAME  # Remove existing directory if it exists
-            sudo git clone https://github.com/devktops/laravel-todo.git $NEW_DIR_NAME
+            sudo git clone git@github.com:007LUNA/laravel-action.git $NEW_DIR_NAME
             
             # Move into the newly cloned Laravel directory
             cd $NEW_DIR_NAME
